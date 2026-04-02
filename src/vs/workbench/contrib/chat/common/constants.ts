@@ -45,6 +45,7 @@ export enum ChatConfiguration {
 	ChatViewSessionsEnabled = 'chat.viewSessions.enabled',
 	ChatViewSessionsGrouping = 'chat.viewSessions.grouping',
 	ChatViewSessionsOrientation = 'chat.viewSessions.orientation',
+	ChatViewSessionsSortOrder = 'chat.viewSessions.sortOrder',
 	ChatViewProgressBadgeEnabled = 'chat.viewProgressBadge.enabled',
 	ChatContextUsageEnabled = 'chat.contextUsage.enabled',
 	SubagentToolCustomAgents = 'chat.customAgentInSubagent.enabled',

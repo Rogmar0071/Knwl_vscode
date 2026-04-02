@@ -603,6 +603,16 @@ configurationRegistry.registerConfiguration({
 			default: 'sideBySide',
 			description: nls.localize('chat.viewSessions.orientation', "Controls the orientation of the chat agent sessions view when it is shown alongside the chat."),
 		},
+		[ChatConfiguration.ChatViewSessionsSortOrder]: {
+			type: 'string',
+			enum: ['created', 'lastUpdated'],
+			enumDescriptions: [
+				nls.localize('chat.viewSessions.sortOrder.created', "Sort agent sessions by creation time."),
+				nls.localize('chat.viewSessions.sortOrder.lastUpdated', "Sort agent sessions by the time of the last request.")
+			],
+			default: 'created',
+			description: nls.localize('chat.viewSessions.sortOrder', "Controls the sort order of agent sessions in the chat sessions view."),
+		},
 		[ChatConfiguration.ChatViewProgressBadgeEnabled]: {
 			type: 'boolean',
 			default: false,
