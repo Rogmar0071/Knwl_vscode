@@ -19,7 +19,7 @@ import { IViewContainersRegistry, IViewsRegistry, ViewContainerLocation, Extensi
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { ISessionsManagementService } from '../../../services/sessions/common/sessionsManagement.js';
-import { IsNewChatInSessionContext, IsNewChatSessionContext, SessionsWelcomeVisibleContext } from '../../../common/contextkeys.js';
+import { IsActiveSessionBackgroundProviderContext, IsNewChatInSessionContext, IsNewChatSessionContext, SessionsWelcomeVisibleContext } from '../../../common/contextkeys.js';
 import { Menus } from '../../../browser/menus.js';
 import { BranchChatSessionAction } from './branchChatSessionAction.js';
 import { RunScriptContribution } from './runScriptAction.js';
@@ -49,6 +49,7 @@ import { IRemoteAgentHostService, IRemoteAgentHostSSHConnection, RemoteAgentHost
 import { ISessionsProvidersService } from '../../../services/sessions/browser/sessionsProvidersService.js';
 import { isAgentHostProvider } from '../../../common/agentHostSessionsProvider.js';
 import { encodeHex, VSBuffer } from '../../../../base/common/buffer.js';
+import { isNative } from '../../../../base/common/platform.js';
 
 export class OpenSessionWorktreeInVSCodeAction extends Action2 {
 	static readonly ID = 'chat.openSessionWorktreeInVSCode';
@@ -63,7 +64,7 @@ export class OpenSessionWorktreeInVSCodeAction extends Action2 {
 				id: Menus.TitleBarSessionMenu,
 				group: 'navigation',
 				order: 9,
-				when: ContextKeyExpr.and(IsAuxiliaryWindowContext.toNegated(), SessionsWelcomeVisibleContext.toNegated()),
+				when: ContextKeyExpr.and(IsAuxiliaryWindowContext.toNegated(), SessionsWelcomeVisibleContext.toNegated(), IsActiveSessionBackgroundProviderContext),
 			}]
 		});
 	}
@@ -133,7 +134,9 @@ export class OpenSessionWorktreeInVSCodeAction extends Action2 {
 		}
 	}
 }
-registerAction2(OpenSessionWorktreeInVSCodeAction);
+if (!isNative) {
+	registerAction2(OpenSessionWorktreeInVSCodeAction);
+}
 
 /**
  * Resolves the VS Code remote authority for the given session provider,
@@ -197,6 +200,27 @@ export function sshAuthorityString(connection: IRemoteAgentHostSSHConnection): s
 	const json = JSON.stringify(obj);
 	return encodeHex(VSBuffer.fromString(json));
 }
+
+class OpenSessionWorktreeInVSCodeNotAvailableAction extends Action2 {
+	constructor() {
+		super({
+			id: 'chat.openSessionWorktreeInVSCode.notAvailable',
+			title: localize2('openInVSCode', 'Open in VS Code'),
+			tooltip: localize('openInVSCodeNotAvailableTooltip', 'Open in VS Code is not available for this session type'),
+			icon: Codicon.vscodeInsiders,
+			precondition: ContextKeyExpr.false(),
+			menu: [{
+				id: Menus.TitleBarSessionMenu,
+				group: 'navigation',
+				order: 9,
+				when: ContextKeyExpr.and(IsAuxiliaryWindowContext.toNegated(), SessionsWelcomeVisibleContext.toNegated(), IsActiveSessionBackgroundProviderContext.toNegated()),
+			}]
+		});
+	}
+
+	override run(): void { }
+}
+registerAction2(OpenSessionWorktreeInVSCodeNotAvailableAction);
 
 class NewChatInSessionsWindowAction extends Action2 {
 
