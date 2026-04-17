@@ -141,6 +141,8 @@ import { FixCookbookService, IFixCookbookService } from '../../prompts/node/inli
 import { WorkspaceMutationManager } from '../../testing/node/setupTestsFileManager';
 import { AgentMemoryService, IAgentMemoryService } from '../../tools/common/agentMemoryService';
 import { IMemoryCleanupService, MemoryCleanupService } from '../../tools/common/memoryCleanupService';
+import { AgentMemoryToolRegistrar, IAgentMemoryToolRegistrar } from '../../tools/node/agentMemoryToolRegistrar';
+import { IToolDeferralService } from '../../../platform/networking/common/toolDeferralService';
 import { ToolDeferralService } from '../../tools/common/toolDeferralService';
 import { IToolsService } from '../../tools/common/toolsService';
 import { ToolsService } from '../../tools/vscode-node/toolsService';
@@ -170,6 +172,7 @@ export function registerServices(builder: IInstantiationServiceBuilder, extensio
 	builder.define(IToolsService, new SyncDescriptor(ToolsService));
 	builder.define(IToolDeferralService, new ToolDeferralService());
 	builder.define(IAgentMemoryService, new SyncDescriptor(AgentMemoryService));
+	builder.define(IAgentMemoryToolRegistrar, new SyncDescriptor(AgentMemoryToolRegistrar));
 	builder.define(IMemoryCleanupService, new SyncDescriptor(MemoryCleanupService));
 	builder.define(IChatDiskSessionResources, new SyncDescriptor(ChatDiskSessionResources));
 	builder.define(IRequestLogger, new SyncDescriptor(RequestLogger));

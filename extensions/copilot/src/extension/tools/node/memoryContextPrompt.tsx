@@ -12,8 +12,10 @@ import { IExperimentationService } from '../../../platform/telemetry/common/null
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry';
 import { URI } from '../../../util/vs/base/common/uri';
 import { Tag } from '../../prompts/node/base/tag';
-import { IAgentMemoryService, normalizeCitations, RepoMemoryEntry } from '../common/agentMemoryService';
+import type { MemoryResponse } from '@github/copilot-agentic-tools/memory';
+import { IAgentMemoryService } from '../common/agentMemoryService';
 import { ToolName } from '../common/toolNames';
+import { IAgentMemoryToolRegistrar } from './agentMemoryToolRegistrar';
 import { extractSessionId } from './memoryTool';
 
 const MEMORY_BASE_DIR = 'memory-tool/memories';
@@ -27,6 +29,7 @@ export class MemoryContextPrompt extends PromptElement<MemoryContextPromptProps>
 	constructor(
 		props: any,
 		@IAgentMemoryService private readonly agentMemoryService: IAgentMemoryService,
+		@IAgentMemoryToolRegistrar private readonly agentMemoryToolRegistrar: IAgentMemoryToolRegistrar,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IExperimentationService private readonly experimentationService: IExperimentationService,
 		@IVSCodeExtensionContext private readonly extensionContext: IVSCodeExtensionContext,
@@ -40,13 +43,28 @@ export class MemoryContextPrompt extends PromptElement<MemoryContextPromptProps>
 		const enableCopilotMemory = this.configurationService.getExperimentBasedConfig(ConfigKey.CopilotMemoryEnabled, this.experimentationService);
 		const enableMemoryTool = this.configurationService.getExperimentBasedConfig(ConfigKey.MemoryToolEnabled, this.experimentationService);
 
-		const userMemoryContent = enableMemoryTool ? await this.getUserMemoryContent() : undefined;
-		const sessionMemoryFiles = enableMemoryTool ? await this.getSessionMemoryFiles(this.props.sessionResource) : undefined;
-		const repoMemories = enableCopilotMemory ? await this.agentMemoryService.getRepoMemories() : undefined;
-		const localRepoMemoryFiles = (enableMemoryTool && !enableCopilotMemory) ? await this.getLocalRepoMemoryFiles() : undefined;
-
 		if (!enableMemoryTool && !enableCopilotMemory) {
 			return null;
+		}
+
+		const userMemoryContent = enableMemoryTool ? await this.getUserMemoryContent() : undefined;
+		const sessionMemoryFiles = enableMemoryTool ? await this.getSessionMemoryFiles(this.props.sessionResource) : undefined;
+		const localRepoMemoryFiles = (enableMemoryTool && !enableCopilotMemory) ? await this.getLocalRepoMemoryFiles() : undefined;
+
+		// When CAPI memory is enabled, fetch from the unified /prompt endpoint
+		let memoryPromptText: string | undefined;
+		let repoMemories: MemoryResponse[] | undefined;
+		if (enableCopilotMemory) {
+			const repoNwo = await this.agentMemoryService.getRepoNwo();
+			// Fetch once and pass the response to registerMemoryTools so it can reuse it,
+			// avoiding a redundant /prompt call.
+			const promptResponse = await this.agentMemoryService.getMemoryPrompt(repoNwo);
+			await this.agentMemoryToolRegistrar.registerMemoryTools(promptResponse);
+			memoryPromptText = promptResponse?.memoriesContext.prompt;
+			// Fall back to individual repo memories if /prompt endpoint is unavailable
+			if (!memoryPromptText) {
+				repoMemories = await this.agentMemoryService.getRepoMemories();
+			}
 		}
 
 		this._sendContextReadTelemetry(
@@ -84,7 +102,12 @@ export class MemoryContextPrompt extends PromptElement<MemoryContextPromptProps>
 						}
 					</Tag>
 				)}
-				{repoMemories && repoMemories.length > 0 && (
+				{memoryPromptText && (
+					<Tag name='memory_context'>
+						{memoryPromptText}
+					</Tag>
+				)}
+				{!memoryPromptText && repoMemories && repoMemories.length > 0 && (
 					<Tag name='repository_memories'>
 						The following are recent memories stored for this repository from previous agent interactions. These memories may contain useful context about the codebase conventions, patterns, and practices. However, be aware that memories might be obsolete or incorrect or may not apply to your current task. Use the citations provided to verify the accuracy of any relevant memory before relying on it.<br />
 						<br />
@@ -197,16 +220,13 @@ export class MemoryContextPrompt extends PromptElement<MemoryContextPromptProps>
 		return files.length > 0 ? files : undefined;
 	}
 
-	private formatMemories(memories: RepoMemoryEntry[]): string {
+	private formatMemories(memories: MemoryResponse[]): string {
 		return memories.map(m => {
 			const lines = [`**${m.subject}**`, `- Fact: ${m.fact}`];
 
-			// Format citations (handle both string and string[] formats)
-			if (m.citations) {
-				const citationsArray = normalizeCitations(m.citations) ?? [];
-				if (citationsArray.length > 0) {
-					lines.push(`- Citations: ${citationsArray.join(', ')}`);
-				}
+			const citations = Array.isArray(m.citations) ? m.citations : m.citations ? [m.citations] : [];
+			if (citations.length > 0) {
+				lines.push(`- Citations: ${citations.join(', ')}`);
 			}
 
 			// Include reason if present (from CAPI format)
