@@ -861,7 +861,7 @@ export function* forAnsiStringParts(str: string) {
 
 /**
  * Strips ANSI escape sequences from a string.
- * @param str The dastringa stringo strip the ANSI escape sequences from.
+ * @param str The string to strip the ANSI escape sequences from.
  *
  * @example
  * removeAnsiEscapeCodes('\u001b[31mHello, World!\u001b[0m');

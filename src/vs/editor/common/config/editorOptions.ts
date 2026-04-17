@@ -2236,7 +2236,7 @@ class EditorGoToLocation extends BaseEditorOption<EditorOption.gotoLocation, IGo
 					...jsonSubset,
 				},
 				'editor.gotoLocation.multipleImplementations': {
-					description: nls.localize('editor.editor.gotoLocation.multipleImplemenattions', "Controls the behavior the 'Go to Implementations'-command when multiple target locations exist."),
+					description: nls.localize('editor.editor.gotoLocation.multipleImplementations', "Controls the behavior the 'Go to Implementations'-command when multiple target locations exist."),
 					...jsonSubset,
 				},
 				'editor.gotoLocation.multipleReferences': {
@@ -5245,7 +5245,7 @@ class EditorSuggest extends BaseEditorOption<EditorOption.suggest, ISuggestOptio
 				'editor.suggest.showClasses': {
 					type: 'boolean',
 					default: true,
-					markdownDescription: nls.localize('editor.suggest.showClasss', "When enabled IntelliSense shows `class`-suggestions.")
+					markdownDescription: nls.localize('editor.suggest.showClasses', "When enabled IntelliSense shows `class`-suggestions.")
 				},
 				'editor.suggest.showStructs': {
 					type: 'boolean',
@@ -5265,7 +5265,7 @@ class EditorSuggest extends BaseEditorOption<EditorOption.suggest, ISuggestOptio
 				'editor.suggest.showProperties': {
 					type: 'boolean',
 					default: true,
-					markdownDescription: nls.localize('editor.suggest.showPropertys', "When enabled IntelliSense shows `property`-suggestions.")
+					markdownDescription: nls.localize('editor.suggest.showProperties', "When enabled IntelliSense shows `property`-suggestions.")
 				},
 				'editor.suggest.showEvents': {
 					type: 'boolean',
@@ -6619,7 +6619,7 @@ export const EditorOptions = {
 	selectionHighlightMaxLength: register(new EditorIntOption(
 		EditorOption.selectionHighlightMaxLength, 'selectionHighlightMaxLength',
 		200, 0, Constants.MAX_SAFE_SMALL_INTEGER,
-		{ description: nls.localize('selectionHighlightMaxLength', "Controls how many characters can be in the selection before similiar matches are not highlighted. Set to zero for unlimited.") }
+		{ description: nls.localize('selectionHighlightMaxLength', "Controls how many characters can be in the selection before similar matches are not highlighted. Set to zero for unlimited.") }
 	)),
 	selectionHighlightMultiline: register(new EditorBooleanOption(
 		EditorOption.selectionHighlightMultiline, 'selectionHighlightMultiline', false,

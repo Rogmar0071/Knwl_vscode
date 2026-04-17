@@ -230,7 +230,7 @@ export class IconLabel extends Disposable {
 		let hoverTarget = htmlElement;
 		if (this.creationOptions?.hoverTargetOverride) {
 			if (!dom.isAncestor(htmlElement, this.creationOptions.hoverTargetOverride)) {
-				throw new Error('hoverTargetOverrride must be an ancestor of the htmlElement');
+				throw new Error('hoverTargetOverride must be an ancestor of the htmlElement');
 			}
 			hoverTarget = this.creationOptions.hoverTargetOverride;
 		}

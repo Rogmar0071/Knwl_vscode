@@ -182,7 +182,7 @@ export interface ISplitViewOptions<TLayoutContext = undefined, TView extends IVi
 
 	/**
 	 * An initial description of this {@link SplitView} instance, allowing
-	 * to initialze all views within the ctor.
+	 * to initialize all views within the ctor.
 	 */
 	readonly descriptor?: ISplitViewDescriptor<TLayoutContext, TView>;
 
@@ -682,7 +682,7 @@ export class SplitView<TLayoutContext = undefined, TView extends IView<TLayoutCo
 				}
 			}
 
-			// Save referene view, in case of `split` sizing
+			// Save reference view, in case of `split` sizing
 			const referenceViewItem = sizing?.type === 'split' ? this.viewItems[sizing.index] : undefined;
 
 			// Remove view

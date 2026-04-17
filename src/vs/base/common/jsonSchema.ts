@@ -247,7 +247,7 @@ export function getCompressedContent(schema: IJSONSchema): string {
 	// this will add new items to the definitions array
 	const str = stringify(schema);
 
-	// now stringify the definitions. Each invication of stringify cann add new items to the definitions array, so the length can grow while we iterate
+	// now stringify the definitions. Each invocation of stringify can add new items to the definitions array, so the length can grow while we iterate
 	const defStrings: string[] = [];
 	for (let i = 0; i < definitions.length; i++) {
 		defStrings.push(`"_${i}":${stringify(definitions[i])}`);
@@ -317,8 +317,8 @@ function traverseNodes(root: IJSONSchema, visit: (schema: IJSONSchema) => boolea
 
 	let next = toWalk.pop();
 	while (next) {
-		const visitChildern = visit(next);
-		if (visitChildern) {
+		const visitChildren = visit(next);
+		if (visitChildren) {
 			collectEntries(next.additionalItems, next.additionalProperties, next.not, next.contains, next.propertyNames, next.if, next.then, next.else, next.unevaluatedItems, next.unevaluatedProperties);
 			collectMapEntries(next.definitions, next.$defs, next.properties, next.patternProperties, <IJSONSchemaMap>next.dependencies, next.dependentSchemas);
 			collectArrayEntries(next.anyOf, next.allOf, next.oneOf, next.prefixItems);

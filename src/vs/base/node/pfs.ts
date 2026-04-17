@@ -98,7 +98,7 @@ export interface IDirent {
 
 /**
  * Drop-in replacement of `fs.readdir` with support
- * for converting from macOS NFD unicon form to NFC
+ * for converting from macOS NFD unicode form to NFC
  * (https://github.com/nodejs/node/issues/2165)
  */
 async function readdir(path: string): Promise<string[]>;

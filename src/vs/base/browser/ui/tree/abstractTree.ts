@@ -1474,8 +1474,8 @@ class StickyScrollController<T, TFilterData, TRef> extends Disposable {
 			nextStickyNode = this.getNextStickyNode(firstVisibleNodeUnderWidget, nextStickyNode.node, stickyNodesHeight);
 		}
 
-		const contrainedStickyNodes = this.constrainStickyNodes(stickyNodes);
-		return contrainedStickyNodes.length ? new StickyScrollState(contrainedStickyNodes) : undefined;
+		const constrainedStickyNodes = this.constrainStickyNodes(stickyNodes);
+		return constrainedStickyNodes.length ? new StickyScrollState(contrainedStickyNodes) : undefined;
 	}
 
 	private getNextVisibleNode(previousStickyNode: StickyScrollNode<T, TFilterData>): ITreeNode<T, TFilterData> | undefined {
