@@ -79,6 +79,7 @@ import { registerChatAccessibilityActions } from './actions/chatAccessibilityAct
 import { AgentChatAccessibilityHelp, EditsChatAccessibilityHelp, PanelChatAccessibilityHelp, QuickChatAccessibilityHelp } from './actions/chatAccessibilityHelp.js';
 import { ModeOpenChatGlobalAction, registerChatActions } from './actions/chatActions.js';
 import { CodeBlockActionRendering, registerChatCodeBlockActions, registerChatCodeCompareBlockActions } from './actions/chatCodeblockActions.js';
+import { registerCodeReviewActions } from './actions/chatCodeReviewActions.js';
 import { ChatContextContributions } from './actions/chatContext.js';
 import { registerChatContextActions } from './actions/chatContextActions.js';
 import { ChatCopyActionRendering, registerChatCopyActions } from './actions/chatCopyActions.js';
@@ -2107,6 +2108,7 @@ registerChatCopyActions();
 registerChatOpenAgentDebugPanelAction();
 registerChatCodeBlockActions();
 registerChatCodeCompareBlockActions();
+registerCodeReviewActions();
 registerChatFileTreeActions();
 registerChatPromptNavigationActions();
 registerChatTitleActions();
