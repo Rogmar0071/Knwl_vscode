@@ -85,7 +85,8 @@ enum LayoutClasses {
 	STATUSBAR_HIDDEN = 'nostatusbar',
 	EXPERIMENTAL_SHELL_GRADIENT_BACKGROUND = 'experimental-shell-gradient-background',
 	FULLSCREEN = 'fullscreen',
-	MAXIMIZED = 'maximized'
+	MAXIMIZED = 'maximized',
+	ANIMATIONS_READY = 'animations-ready'
 }
 
 //#endregion
@@ -236,7 +237,7 @@ export class Workbench extends Disposable implements IWorkbenchLayoutService {
 
 	private readonly partVisibility: IPartVisibilityState = {
 		sidebar: true,
-		auxiliaryBar: false,
+		auxiliaryBar: true,
 		editor: false,
 		panel: false,
 		chatBar: true
@@ -628,6 +629,20 @@ export class Workbench extends Disposable implements IWorkbenchLayoutService {
 
 		// Mark as restored
 		this.setRestored();
+
+		// Enable part-reveal transitions once the workbench reaches the
+		// `Eventually` lifecycle phase. Both the `transition` declarations
+		// and the `@starting-style` rules are scoped behind `.animations-ready`,
+		// so any parts revealed during startup — including async pane-
+		// composite opens triggered by session-loading autoruns — appear
+		// instantly. `Eventually` is a well-defined signal that startup
+		// work has fully settled, avoiding any magic-number timing.
+		lifecycleService.when(LifecyclePhase.Eventually).then(() => {
+			if (this._store.isDisposed) {
+				return;
+			}
+			this.mainContainer.classList.add(LayoutClasses.ANIMATIONS_READY);
+		}, onUnexpectedError);
 
 		// Set lifecycle phase to `Eventually` after a short delay and when idle (min 2.5sec, max 5sec)
 		const eventuallyPhaseScheduler = this._register(new RunOnceScheduler(() => {
