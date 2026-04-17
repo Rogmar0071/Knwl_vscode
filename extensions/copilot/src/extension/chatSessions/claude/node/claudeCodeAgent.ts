@@ -11,7 +11,8 @@ import { IChatDebugFileLoggerService } from '../../../../platform/chat/common/ch
 import { INativeEnvService } from '../../../../platform/env/common/envService';
 import { ILogService } from '../../../../platform/log/common/logService';
 import { IMcpService } from '../../../../platform/mcp/common/mcpService';
-import { CopilotChatAttr, GenAiAttr, IOTelService, type ISpanHandle, SpanKind, SpanStatusCode, truncateForOTel } from '../../../../platform/otel/common/index';
+import { CopilotChatAttr, emitSessionStartEvent, GenAiAttr, GenAiMetrics, GenAiOperationName, GenAiProviderName, IOTelService, type ISpanHandle, SpanKind, SpanStatusCode, type TraceContext, truncateForOTel } from '../../../../platform/otel/common/index';
+import { deriveClaudeOTelEnv } from '../../../../platform/otel/common/agentOTelEnv';
 import { CapturingToken } from '../../../../platform/requestLogger/common/capturingToken';
 import { IWorkspaceService } from '../../../../platform/workspace/common/workspaceService';
 import { DeferredPromise } from '../../../../util/vs/base/common/async';
@@ -167,6 +168,17 @@ export class ClaudeCodeSession extends Disposable {
 	private _currentToolNames: ReadonlySet<string> | undefined;
 	private _gateway: vscode.McpGateway | undefined;
 	private _gatewayIdleTimeout: ReturnType<typeof setTimeout> | undefined;
+	private _currentInvokeAgentSpan: ISpanHandle | undefined;
+	private _currentInvokeAgentTraceContext: TraceContext | undefined;
+	private _currentInvokeAgentStartTime: number | undefined;
+	private _isFirstRequest = true;
+	private _turnCount = 0;
+	// Parent-only token accumulators (excludes subagent turns) for gen_ai.usage.* consistency
+	// with the foreground agent which also reports parent-only tokens on the root span.
+	private _parentInputTokens = 0;
+	private _parentOutputTokens = 0;
+	private _parentCacheReadTokens = 0;
+	private _parentCacheCreationTokens = 0;
 
 	/**
 	 * Sets the model on the active SDK session, or stores it for the next session start.
@@ -447,7 +459,9 @@ export class ClaudeCodeSession extends Disposable {
 					ANTHROPIC_AUTH_TOKEN: `${this.serverConfig.nonce}.${this.sessionId}`,
 					CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 					USE_BUILTIN_RIPGREP: '0',
-					PATH: `${this.envService.appRoot}/node_modules/@vscode/ripgrep/bin${pathSep}${process.env.PATH}`
+					PATH: `${this.envService.appRoot}/node_modules/@vscode/ripgrep/bin${pathSep}${process.env.PATH}`,
+					// Forward OTel configuration to the Claude SDK subprocess
+					...deriveClaudeOTelEnv(this._otelService.config),
 				},
 				attribution: {
 					commit: '',
@@ -517,15 +531,50 @@ export class ClaudeCodeSession extends Disposable {
 				new CapturingToken(promptLabel, 'claude', undefined, undefined, this.sessionId)
 			);
 
-			// Emit a user_message span event for the debug panel
-			// Use a non-standard operation name so completedSpanToDebugEvent ignores this span
-			// (avoids a "Model Turn · 0 tokens" entry); only the user_message event is rendered.
+			// End any previous invoke_agent span (e.g., from a prior turn in this session)
+			this._endInvokeAgentSpan();
+
+			// Start the invoke_agent span for this request
+			const modelId = this._currentModelId.toEndpointModelId();
+			this._currentInvokeAgentSpan = this._otelService.startSpan('invoke_agent claude', {
+				kind: SpanKind.INTERNAL,
+				attributes: {
+					[GenAiAttr.OPERATION_NAME]: GenAiOperationName.INVOKE_AGENT,
+					[GenAiAttr.AGENT_NAME]: 'claude',
+					[GenAiAttr.PROVIDER_NAME]: GenAiProviderName.GITHUB,
+					[GenAiAttr.CONVERSATION_ID]: this.sessionId,
+					[CopilotChatAttr.SESSION_ID]: this.sessionId,
+					[CopilotChatAttr.CHAT_SESSION_ID]: this.sessionId,
+					[GenAiAttr.REQUEST_MODEL]: modelId,
+				},
+			});
+			this._currentInvokeAgentTraceContext = this._currentInvokeAgentSpan.getSpanContext();
+			this._currentInvokeAgentStartTime = Date.now();
+			this._turnCount = 0;
+			this._parentInputTokens = 0;
+			this._parentOutputTokens = 0;
+			this._parentCacheReadTokens = 0;
+			this._parentCacheCreationTokens = 0;
+
+			// Store trace context in session state so the language model server
+			// can parent chat spans to this invoke_agent span
+			this.sessionStateService.setTraceContextForSession(this.sessionId, this._currentInvokeAgentTraceContext);
+
+			// Emit session start event and metric for the first request in this session
+			if (this._isFirstRequest) {
+				this._isFirstRequest = false;
+				GenAiMetrics.incrementSessionCount(this._otelService);
+				emitSessionStartEvent(this._otelService, this.sessionId, modelId, 'claude');
+			}
+
+			// Emit user_message span event for the debug panel under the invoke_agent context
 			const userMsgSpan = this._otelService.startSpan('user_message', {
 				kind: SpanKind.INTERNAL,
 				attributes: {
 					[GenAiAttr.OPERATION_NAME]: 'user_message',
 					[CopilotChatAttr.CHAT_SESSION_ID]: this.sessionId,
 				},
+				parentTraceContext: this._currentInvokeAgentTraceContext,
 			});
 			const userContent = truncateForOTel(promptLabel);
 			userMsgSpan.setAttribute(CopilotChatAttr.USER_REQUEST, userContent);
@@ -571,6 +620,7 @@ export class ClaudeCodeSession extends Disposable {
 	private async _processMessages(): Promise<void> {
 		const otelToolSpans = new Map<string, ISpanHandle>();
 		const otelHookSpans = new Map<string, ISpanHandle>();
+		const subagentTraceContexts = new Map<string, TraceContext>();
 		try {
 			const unprocessedToolCalls = new Map<string, Anthropic.Beta.Messages.BetaToolUseBlock>();
 			for await (const message of this._queryGenerator!) {
@@ -596,7 +646,54 @@ export class ClaudeCodeSession extends Disposable {
 					continue;
 				}
 
+				// Track turn count for assistant messages (each assistant message = one LLM round-trip)
+				if (message.type === 'assistant') {
+					this._turnCount++;
+					// Accumulate parent-only token usage (exclude subagent turns).
+					// This keeps gen_ai.usage.* on the root span comparable with the
+					// foreground agent which also reports parent-only tokens.
+					if (!message.parent_tool_use_id) {
+						const msgUsage = message.message?.usage;
+						if (msgUsage) {
+							this._parentInputTokens += (msgUsage.input_tokens ?? 0)
+								+ (msgUsage.cache_creation_input_tokens ?? 0)
+								+ (msgUsage.cache_read_input_tokens ?? 0);
+							this._parentOutputTokens += (msgUsage.output_tokens ?? 0);
+							this._parentCacheReadTokens += (msgUsage.cache_read_input_tokens ?? 0);
+							this._parentCacheCreationTokens += (msgUsage.cache_creation_input_tokens ?? 0);
+						}
+					}
+				}
+
+				// Set token usage and cost on the invoke_agent span from result messages.
+				if (message.type === 'result' && this._currentInvokeAgentSpan) {
+					if (message.num_turns !== undefined) {
+						this._currentInvokeAgentSpan.setAttribute(CopilotChatAttr.TURN_COUNT, message.num_turns);
+					}
+					if (message.total_cost_usd !== undefined) {
+						this._currentInvokeAgentSpan.setAttribute('copilot_chat.total_cost_usd', message.total_cost_usd);
+					}
+					const responseModel = message.modelUsage ? Object.keys(message.modelUsage)[0] : undefined;
+					if (responseModel) {
+						this._currentInvokeAgentSpan.setAttribute(GenAiAttr.RESPONSE_MODEL, responseModel);
+					}
+				}
+
 				this.logService.trace(`claude-agent-sdk Message: ${JSON.stringify(message, null, 2)}`);
+
+				// Update the session trace context based on whether this message is from a subagent.
+				// This ensures that chat spans (created by chatMLFetcher via runWithTraceContext)
+				// are parented under the correct Agent tool span during subagent execution.
+				if ('parent_tool_use_id' in message && message.parent_tool_use_id) {
+					const subagentCtx = subagentTraceContexts.get(message.parent_tool_use_id);
+					if (subagentCtx) {
+						this.sessionStateService.setTraceContextForSession(this.sessionId, subagentCtx);
+					}
+				} else if ('parent_tool_use_id' in message) {
+					// Message is from the main agent (parent_tool_use_id is null) — restore root context
+					this.sessionStateService.setTraceContextForSession(this.sessionId, this._currentInvokeAgentTraceContext);
+				}
+
 				const result = this.instantiationService.invokeFunction(dispatchMessage, message, this.sessionId, {
 					stream: this._currentRequest.stream,
 					toolInvocationToken: this._currentRequest.toolInvocationToken,
@@ -606,9 +703,13 @@ export class ClaudeCodeSession extends Disposable {
 					unprocessedToolCalls,
 					otelToolSpans,
 					otelHookSpans,
+					parentTraceContext: this._currentInvokeAgentTraceContext,
+					subagentTraceContexts,
 				});
 
 				if (result?.requestComplete) {
+					// End the invoke_agent span for this request
+					this._endInvokeAgentSpan();
 					// Clear the capturing token so subsequent requests get their own
 					this.sessionStateService.setCapturingTokenForSession(this.sessionId, undefined);
 					// Resolve and remove the completed request
@@ -618,6 +719,7 @@ export class ClaudeCodeSession extends Disposable {
 					}
 					this._currentRequest = undefined;
 					this._startGatewayIdleTimer();
+					subagentTraceContexts.clear();
 				}
 			}
 			// Generator ended normally - clean up so next invoke starts fresh
@@ -636,12 +738,58 @@ export class ClaudeCodeSession extends Disposable {
 				span.end();
 			}
 			otelHookSpans.clear();
+			// End any lingering invoke_agent span
+			this._endInvokeAgentSpan(SpanStatusCode.ERROR, 'session ended');
 		}
+	}
+
+	/**
+	 * Ends the current invoke_agent span and records metrics.
+	 */
+	private _endInvokeAgentSpan(statusCode?: SpanStatusCode, statusMessage?: string): void {
+		if (!this._currentInvokeAgentSpan) {
+			return;
+		}
+		const span = this._currentInvokeAgentSpan;
+		span.setAttribute(CopilotChatAttr.TURN_COUNT, this._turnCount);
+
+		// Set parent-only token usage (comparable with foreground agent).
+		// Note: output_tokens from message.usage at message_start may undercount
+		// since streaming hasn't finished. The per-chat spans (from chatMLFetcher)
+		// have accurate output tokens. This is a known limitation — the root span
+		// output count may be slightly lower than the sum of chat span outputs.
+		span.setAttributes({
+			[GenAiAttr.USAGE_INPUT_TOKENS]: this._parentInputTokens,
+			[GenAiAttr.USAGE_OUTPUT_TOKENS]: this._parentOutputTokens,
+			...(this._parentCacheReadTokens ? { [GenAiAttr.USAGE_CACHE_READ_INPUT_TOKENS]: this._parentCacheReadTokens } : {}),
+			...(this._parentCacheCreationTokens ? { [GenAiAttr.USAGE_CACHE_CREATION_INPUT_TOKENS]: this._parentCacheCreationTokens } : {}),
+		});
+
+		if (statusCode !== undefined) {
+			span.setStatus(statusCode, statusMessage);
+		} else {
+			span.setStatus(SpanStatusCode.OK);
+		}
+		span.end();
+
+		// Record agent-level metrics
+		if (this._currentInvokeAgentStartTime) {
+			const durationSec = (Date.now() - this._currentInvokeAgentStartTime) / 1000;
+			GenAiMetrics.recordAgentDuration(this._otelService, 'claude', durationSec);
+		}
+		GenAiMetrics.recordAgentTurnCount(this._otelService, 'claude', this._turnCount);
+
+		this._currentInvokeAgentSpan = undefined;
+		this._currentInvokeAgentTraceContext = undefined;
+		this._currentInvokeAgentStartTime = undefined;
+		this.sessionStateService.setTraceContextForSession(this.sessionId, undefined);
 	}
 
 	private _cleanup(error: Error): void {
 		// Clear the capturing token so it doesn't leak across sessions or error boundaries
 		this.sessionStateService.setCapturingTokenForSession(this.sessionId, undefined);
+		// End invoke_agent span with error if still open
+		this._endInvokeAgentSpan(SpanStatusCode.ERROR, error.message);
 		this._resetSessionState();
 
 		const wasYielding = this._yieldInProgress;
