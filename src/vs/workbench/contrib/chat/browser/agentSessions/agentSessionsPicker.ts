@@ -9,6 +9,7 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ThemeIcon } from '../../../../../base/common/themables.js';
 import { localize } from '../../../../../nls.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
+import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IQuickInputButton, IQuickInputService, IQuickPickItem, IQuickPickSeparator } from '../../../../../platform/quickinput/common/quickInput.js';
 import { ISessionOpenOptions, openSession } from './agentSessionsOpener.js';
@@ -17,6 +18,7 @@ import { IAgentSessionsService } from './agentSessionsService.js';
 import { AgentSessionsSorter, groupAgentSessionsByDate, sessionDateFromNow } from './agentSessionsViewer.js';
 import { AGENT_SESSION_DELETE_ACTION_ID, AGENT_SESSION_RENAME_ACTION_ID } from './agentSessions.js';
 import { AgentSessionsFilter } from './agentSessionsFilter.js';
+import { ChatConfiguration } from '../../../common/constants.js';
 
 interface ISessionPickItem extends IQuickPickItem {
 	readonly session: IAgentSession;
@@ -42,9 +44,10 @@ export const deleteButton: IQuickInputButton = {
 	tooltip: localize('deleteSession', "Delete")
 };
 
-export function getSessionDescription(session: IAgentSession): string {
+export function getSessionDescription(session: IAgentSession, useLastUpdated = false): string {
 	const descriptionText = typeof session.description === 'string' ? session.description : session.description ? renderAsPlaintext(session.description) : undefined;
-	const timeAgo = sessionDateFromNow(session.timing.created);
+	const time = useLastUpdated ? session.timing.lastRequestEnded ?? session.timing.created : session.timing.created;
+	const timeAgo = sessionDateFromNow(time);
 	const descriptionParts = [descriptionText, session.providerLabel, timeAgo].filter(part => !!part);
 
 	return descriptionParts.join(' • ');
@@ -77,6 +80,7 @@ export class AgentSessionsPicker {
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 	) { }
 
 	async pickAgentSession(): Promise<void> {
@@ -157,7 +161,8 @@ export class AgentSessionsPicker {
 	}
 
 	private toPickItem(session: IAgentSession): ISessionPickItem {
-		const description = getSessionDescription(session);
+		const useLastUpdated = this.configurationService.getValue<string>(ChatConfiguration.ChatViewSessionsSortOrder) === 'lastUpdated';
+		const description = getSessionDescription(session, useLastUpdated);
 		const buttons = getSessionButtons(session);
 
 		return {
